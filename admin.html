@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Azra Admin</title>
+<style>
+:root{--y:#FDBE02;--r:#CC0A0A;--r2:#9E0606;--ink:#2A1408;--cream:#FFF8E6}
+*{box-sizing:border-box}
+body{font-family:system-ui,sans-serif;max-width:780px;margin:0 auto;padding:16px;background:var(--cream);color:var(--ink)}
+h1,h2,h3{color:var(--r2);margin:.3rem 0}
+input,select,textarea,button{font:inherit;padding:10px;border:1px solid #ccc;border-radius:10px;width:100%;margin:4px 0}
+button{background:var(--r);color:#fff;border:0;cursor:pointer;font-weight:700}
+button:disabled{opacity:.6}
+.card{background:#fff;border-radius:14px;padding:14px;margin:12px 0;box-shadow:0 2px 8px #0002;border-top:5px solid var(--y)}
+.item{display:flex;gap:10px;align-items:center;border-bottom:1px solid #eee;padding:10px 0;flex-wrap:wrap}
+.item img{width:52px;height:52px;object-fit:cover;border-radius:8px}
+.item .info{flex:1;min-width:140px}
+.item button{width:auto;margin:0;padding:8px 12px}
+.item .ph{width:52px;height:52px;border-radius:8px;background:var(--y);display:grid;place-items:center}
+.off{background:#777}.del{background:#555}.img{background:var(--ink)}
+.hidden{display:none}.top{display:flex;justify-content:space-between;align-items:center}
+.top button{width:auto}
+.cat{margin-top:14px;font-weight:800;color:var(--r2);border-bottom:2px solid var(--y)}
+</style>
+</head>
+<body>
+<div id="loginBox" class="card">
+  <h2>Azra Admin Login</h2>
+  <input id="email" type="email" placeholder="Email" autocomplete="username">
+  <input id="password" type="password" placeholder="Password" autocomplete="current-password">
+  <button onclick="login()">Log in</button>
+  <p id="loginMsg" style="color:#b00020"></p>
+</div>
+
+<div id="panel" class="hidden">
+  <div class="top"><h1>Menu Manager</h1><button onclick="logout()" style="background:#555">Log out</button></div>
+
+  <div class="card">
+    <h3>Add item</h3>
+    <input id="name" placeholder="Name (e.g. Pilau)">
+    <textarea id="desc" rows="2" placeholder="Short description"></textarea>
+    <input id="price" type="number" placeholder="Price (KSh)">
+    <input id="category" list="cats" placeholder="Category (pick or type a new one)">
+    <datalist id="cats"></datalist>
+    <input id="image" type="file" accept="image/*">
+    <button id="addBtn" onclick="addItem()">Add to menu</button>
+  </div>
+
+  <div class="card"><h3>Items</h3><p><small>Tap Available / Sold out to switch. Tap Photo to change the picture.</small></p><div id="list"></div></div>
+  <input id="swap" type="file" accept="image/*" class="hidden">
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+const SUPABASE_URL='https://huscururaojkxyiiggjk.supabase.co', SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh1c2N1cnVyYW9qa3h5aWlnZ2prIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQwNjEwNDAsImV4cCI6MjEwOTYzNzA0MH0.PZUjys6UBDjySf9he-z3j4ErmOEXfHTUud9ujVj5_qg';
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+async function login(){
+  const {error}=await sb.auth.signInWithPassword({email:$('email').value.trim(),password:$('password').value});
+  $('loginMsg').textContent=error?'Wrong email or password':'';
+  if(!error)init();
+}
+async function logout(){await sb.auth.signOut();init()}
+async function init(){
+  const {data:{session}}=await sb.auth.getSession();
+  $('loginBox').classList.toggle('hidden',!!session);
+  $('panel').classList.toggle('hidden',!session);
+  if(session)loadItems();
+}
+
+async function loadItems(){
+  const {data,error}=await sb.from('menu_items').select('*').order('category').order('id');
+  if(error){$('list').textContent=error.message;return}
+  $('cats').innerHTML=[...new Set((data||[]).map(i=>i.category).filter(Boolean))].map(c=>`<option value="${esc(c)}">`).join('');
+  let last='';
+  $('list').innerHTML=(data||[]).map(i=>{
+    const head=i.category!==last?`<div class="cat">${esc(i.category)}</div>`:'';last=i.category;
+    return head+`<div class="item">
+      ${i.image_url?`<img src="${esc(i.image_url)}" alt="">`:'<div class="ph">🍽</div>'}
+      <div class="info"><b>${esc(i.name)}</b><br><small>KSh ${esc(i.price)}</small></div>
+      <button class="${i.available?'':'off'}" onclick="toggle(${i.id},${i.available})">${i.available?'Available':'Sold out'}</button>
+      <button class="img" onclick="swapImg(${i.id})">Photo</button>
+      <button class="del" onclick="del(${i.id})">✕</button></div>`}).join('')||'No items yet.';
+}
+
+async function toggle(id,cur){
+  const {error}=await sb.from('menu_items').update({available:!cur}).eq('id',id);
+  if(error)alert(error.message);loadItems();
+}
+async function del(id){
+  if(!confirm('Delete this item?'))return;
+  const {error}=await sb.from('menu_items').delete().eq('id',id);
+  if(error)alert(error.message);loadItems();
+}
+async function upload(file){
+  const path=Date.now()+'-'+file.name.replace(/[^\w.-]/g,'_');
+  const {error}=await sb.storage.from('menu-images').upload(path,file);
+  if(error)throw error;
+  return sb.storage.from('menu-images').getPublicUrl(path).data.publicUrl;
+}
+let swapId=null;
+function swapImg(id){swapId=id;$('swap').click()}
+$('swap').onchange=async e=>{
+  const f=e.target.files[0];if(!f)return;
+  try{const url=await upload(f);
+    const {error}=await sb.from('menu_items').update({image_url:url}).eq('id',swapId);
+    if(error)throw error;
+  }catch(err){alert('Upload failed: '+err.message)}
+  e.target.value='';loadItems();
+};
+async function addItem(){
+  const btn=$('addBtn');
+  if(!$('name').value.trim()||!$('category').value.trim()){alert('Name and category are required');return}
+  btn.disabled=true;btn.textContent='Saving...';
+  try{
+    const file=$('image').files[0];
+    const image_url=file?await upload(file):null;
+    const {error}=await sb.from('menu_items').insert({
+      name:$('name').value.trim(),description:$('desc').value.trim(),
+      price:$('price').value||null,category:$('category').value.trim(),image_url});
+    if(error)throw error;
+    ['name','desc','price','category','image'].forEach(f=>$(f).value='');
+  }catch(err){alert(err.message)}
+  btn.disabled=false;btn.textContent='Add to menu';loadItems();
+}
+init();
+</script>
+</body>
+</html>
